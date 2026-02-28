@@ -1,0 +1,49 @@
+name: Supabase Heartbeat
+
+on:
+  schedule:
+    # 毎週 月・木 に実行（UTC）
+    # 例: 03:15 UTC = 12:15 JST
+    - cron: "15 3 * * 1,4"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Ping Supabase (REST select)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "Missing SUPABASE_URL or SUPABASE_ANON_KEY secrets."
+            exit 1
+          fi
+
+          ENDPOINT="${SUPABASE_URL}/rest/v1/healthcheck?select=id&limit=1"
+
+          echo "Requesting: ${ENDPOINT}"
+
+          # curl with retry
+          http_code=$(curl -sS -o /tmp/resp.json \
+            -w "%{http_code}" \
+            --retry 3 --retry-delay 2 --retry-all-errors \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+            -H "Accept: application/json" \
+            "${ENDPOINT}")
+
+          echo "HTTP: ${http_code}"
+          cat /tmp/resp.json || true
+
+          if [ "${http_code}" -lt 200 ] || [ "${http_code}" -ge 300 ]; then
+            echo "Supabase heartbeat failed."
+            exit 1
+          fi
+
+          echo "Supabase heartbeat OK."
